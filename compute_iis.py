@@ -58,6 +58,13 @@ def compute_iis(problem):
         iis_problem += elastic_constraint
 
     result = []
+
+    # Scary infinite loop!!!
+    # This while true is [theoretically] safe, as each iteration will either:
+    # - Have an objective value for the ILP of zero, exiting the loop
+    # - Remove constraints from the ILP
+    # As the goal is to minimize the sum of all elastic variables, it will reach
+    # zero in a finite amount of iterations due to the nature of the ILP we created.
     while True:
         iis_problem += lpSum(elastic_variables.values())
         status = iis_problem.solve()
@@ -68,7 +75,7 @@ def compute_iis(problem):
             return result
 
         reduced_iis_problem = LpProblem("iis_calculation_problem", LpMinimize)
-        for (k, constraint) in dict(iis_problem.constraints).items():
+        for (k, constraint) in iis_problem.constraints.items():
             [e_u, e_d] = elastic_variables[k]
             if e_u.value() > 0 or e_d.value() > 0:
                 result.append(constraint)
