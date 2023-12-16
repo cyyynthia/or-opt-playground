@@ -113,7 +113,6 @@ def compute_iis(problem):
     # If it does, keep the constraint. Otherwise, drop the constraint.
     for c in list(iss_constraints):
         sub_problem = LpProblem("feasibility_check", problem.sense)
-        sub_problem.solver = LpSolverDefault.__class__(msg=False)
         sub_problem += problem.objective
         for constraint in iss_constraints:
             if c != constraint:
