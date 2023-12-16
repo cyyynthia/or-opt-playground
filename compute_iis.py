@@ -32,13 +32,25 @@
 #     ORSA Journal on Computing 3(2):157-168.
 #     https://doi.org/10.1287/ijoc.3.2.157
 
-from pulp import LpVariable, LpProblem, LpMinimize, lpSum, LpConstraintGE, LpConstraintLE
+from pulp import LpVariable, LpProblem, lpSum, LpSolverDefault, LpMinimize, LpConstraintGE, LpConstraintLE
 
+# Perform an elastic filtering on the problem, as defined in the linked paper, §4. Elastic filtering.
+#
+# The output is a set of constraints that contain one or more IIS, but no irrelevant constraints; that is,
+# every constraint contained in the output set is part of an IIS.
+#
+# See linked paper, §4.1. Theorems and Discussion, Lemma 3 for proof of the aforementioned statement.
+def elastic_filter(problem):
+    elastic_problem = LpProblem("elastic_filtering", LpMinimize)
 
-def compute_iis(problem):
-    iis_problem = LpProblem("iis_calculation_problem", LpMinimize)
+    # Enable warm start to speed to enhance efficiency of the filtering iterations.
+    # Each iteration is exactly like the previous one, except the elastic coefficients have been updated,
+    # so we can start from the previous solution to go to the optimal solution faster.
+    elastic_problem.solver = LpSolverDefault.__class__(warmStart=True)
+
+    # Turn all the constraints into "elastic" constraints.
+    # They then can be "stretched", or moved, to try and make a problem that's solvable.
     elastic_variables = dict()
-
     for (k, constraint) in problem.constraints.items():
         e_u = LpVariable(f"$elastic_{k}_up", 0, 0)
         e_d = LpVariable(f"$elastic_{k}_down", 0, 0)
@@ -54,10 +66,12 @@ def compute_iis(problem):
             e_u.upBound = None
             e_d.upBound = None
 
-        elastic_variables[elastic_constraint.name] = [e_u, e_d]
-        iis_problem += elastic_constraint
+        elastic_variables[elastic_constraint.name] = e_u, e_d
+        elastic_problem += elastic_constraint
 
-    result = []
+    # Define objective
+    # We want to move the least amount of constraints, so we'll minimize that.
+    elastic_problem += lpSum(elastic_variables.values())
 
     # Scary infinite loop!!!
     # This while true is [theoretically] safe, as each iteration will either:
@@ -65,22 +79,54 @@ def compute_iis(problem):
     # - Remove constraints from the ILP
     # As the goal is to minimize the sum of all elastic variables, it will reach
     # zero in a finite amount of iterations due to the nature of the ILP we created.
+    result = []
     while True:
-        iis_problem += lpSum(elastic_variables.values())
-        status = iis_problem.solve()
-        if status != 1:
-            return None
-
-        if iis_problem.objective.value() == 0:
+        status = elastic_problem.solve()
+        if status != 1 or elastic_problem.objective.value() == 0:
             return result
 
-        reduced_iis_problem = LpProblem("iis_calculation_problem", LpMinimize)
-        for (k, constraint) in iis_problem.constraints.items():
-            [e_u, e_d] = elastic_variables[k]
+        # For every constraint that has been stretched, turn them back to their original non-elastic form,
+        # append it to the result set, and update the elastic variables' upper bound and value to 0.
+        for (k, (e_u, e_d)) in elastic_variables.items():
             if e_u.value() > 0 or e_d.value() > 0:
-                result.append(constraint)
-                del elastic_variables[k]
-            else:
-                reduced_iis_problem += constraint
+                e_u.upBound = 0
+                e_d.upBound = 0
+                e_u.setInitialValue(0)
+                e_d.setInitialValue(0)
+                constraint = elastic_problem.constraints[k]
+                result.append(constraint.__original)
 
-        iis_problem = reduced_iis_problem
+
+# Find a single IIS of an infeasible problem.
+#
+# This function works in two passes:
+# - First pass is using the elastic filter algorithm to filter out constraints that are not part of an IIS
+# - Second pass is a deletion filter on the result of the elastic filter to get a single IIS.
+#
+# The deletion algorithm is specified in the linked paper, §2. Deletion filtering.
+# Proof the output is a single IIS can be found in the linked paper, §2.1. Theorems and Discussion, Theorem 2.
+def compute_iis(problem):
+    iss_constraints = elastic_filter(problem)
+    print(len(iss_constraints))
+
+    # For every constraint, check if removing it makes the program feasible.
+    # If it does, keep the constraint. Otherwise, drop the constraint.
+    for c in list(iss_constraints):
+        sub_problem = LpProblem("feasibility_check", problem.sense)
+        sub_problem.solver = LpSolverDefault.__class__(msg=False)
+        sub_problem += problem.objective
+        for constraint in iss_constraints:
+            if c != constraint:
+                sub_problem += constraint
+
+        # Efficiency: this is... not great. We could shortcircuit if we had control over the internals of
+        # the solver as soon as we identify if the program will be feasible, or not. No need to go and try to
+        # find the optimal solution. For instance, a solver using the two-phase simplex method could stop right
+        # after phase 1, as it'll tell us if the problem is feasible or infeasible.
+        #
+        # That's the downside of doing it from PuLP: we don't have the ability to poke at internal data
+        # structures of the solver, or have granular control over what it's doing. It is what it is!
+        if sub_problem.solve() != 1:
+            iss_constraints.remove(c)
+
+    return iss_constraints

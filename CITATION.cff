@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+type: software
+repository-code: https://github.com/cyyynthia/pulp-playground
+license: BSD-3-Clause
+title: >-
+  Experiment with modeling problems related to linear
+  programming with PuLP
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+authors:
+  - given-names: Cynthia
+    family-names: Rey
+    email: cynthia@cynthia.dev
+references:
+  - type: generic
+    title: Locating Minimal Infeasible Constraint Sets in Linear Programs
+    doi: 10.1287/ijoc.3.2.157
+    url: https://doi.org/10.1287/ijoc.3.2.157
+    journal: ORSA Journal on Computing
+    volume: 3
+    number: 2
+    start: 157
+    end: 168
+    year: 1991
+    authors:
+      - given-names: John W.
+        family-names: Chinneck
+      - given-names: Erik W.
+        family-names: Dravnieks
