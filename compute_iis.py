@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # ----------
 #
-# The algorithm implemented in this file is from the following publication
+# The algorithms implemented in this file are from the following publication:
 #     John W. Chinneck, Erik W. Dravnieks, (1991) Locating Minimal Infeasible Constraint Sets in Linear Programs.
 #     ORSA Journal on Computing 3(2):157-168.
 #     https://doi.org/10.1287/ijoc.3.2.157
@@ -128,7 +128,8 @@ def elastic_filter(problem):
 #
 # Combining the two, we could imagine being able based on a heuristic be able during the solving that the method
 # currently picked will be inefficient, and try something else. If we also pour in the ability to optimize the
-# algorithms used, there is a huge potential for improvement over this rather crude implementation.
+# solving algorithms used for this problem, there is a huge potential for improvement over this rather crude
+# implementation.
 def compute_iis(problem):
     iss_constraints = elastic_filter(problem)
 
