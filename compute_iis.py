@@ -120,9 +120,6 @@ def deletion_filter(problem, filtered_constraints=None):
     if len(constraints) == 1:
         return constraints
 
-    if problem.status == 0:
-        problem.solve()  # Would benefit from stopping at phase 1
-
     # For every constraint, check if removing it makes the program feasible.
     # If it does, keep the constraint. Otherwise, drop the constraint.
     # List is copied to make sure deletions are handled correctly.
