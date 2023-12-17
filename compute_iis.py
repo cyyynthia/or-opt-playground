@@ -35,7 +35,6 @@
 from pulp import (
     LpVariable, LpProblem, lpSum,
     LpMinimize, LpConstraintGE, LpConstraintLE, LpStatusInfeasible,
-    LpSolverDefault,
 )
 
 
@@ -62,13 +61,11 @@ def make_constraint_elastic(constraint):
 #
 # The output is a set of constraints that contain one or more IIS, but no irrelevant constraints; that is,
 # every constraint contained in the output set is part of an IIS. (§4.1., Lemma 3)
+#
+# From limited testing, it seems doing warm starts (i.e. reusing the results of the previous iteration)
+# make zero difference in the performance of the filter, and in some cases worsen it.
 def elastic_filter(problem):
     elastic_problem = LpProblem("elastic_filtering", LpMinimize)
-
-    # Enable warm start to speed to enhance efficiency of the filtering iterations.
-    # Each iteration is exactly like the previous one, except the elastic coefficients have been updated,
-    # so we can start from the previous solution to go to the optimal solution faster.
-    elastic_problem.solver = LpSolverDefault.__class__(warmStart=True)
 
     # Turn all the constraints into "elastic" constraints.
     # They then can be "stretched", or moved, to try and make a problem that's solvable.
