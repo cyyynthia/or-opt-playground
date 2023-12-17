@@ -19,10 +19,14 @@ Computes an IIS of constraints of an infeasible problem. Uses a combination of e
 Not the most efficient solution, but an efficient implementation must come from a "real" solver anyway. 
 [*John W. Chinneck, Erik W. Dravnieks, (1991) Locating Minimal Infeasible Constraint Sets in Linear Programs. ORSA Journal on Computing 3(2):157-168.*](https://doi.org/10.1287/ijoc.3.2.157)
 
+## Useful resources
+- Collection of instances from MIPLIB: https://git.zib.de/miplib2017/revised-submissions-final 
+- Collection of infeasible instances from COIN-OR: https://github.com/coin-or-tools/Data-Infeas/tree/master 
+
 ## License
-Software licensed under the BSD-3-Clause license, please see LICENSE for more details. Each file includes credits
-and information about where it's from when appropriate.
+Software licensed under the BSD-3-Clause license, please see LICENSE for more details.
+Each file includes copyright information and the relevant credits.
 
 ---
 
-Fuck Python 🩷
+Fuck Python~ 🩷

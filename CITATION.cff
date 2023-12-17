@@ -2,9 +2,7 @@ cff-version: 1.2.0
 type: software
 repository-code: https://github.com/cyyynthia/pulp-playground
 license: BSD-3-Clause
-title: >-
-  Experiment with modeling problems related to linear
-  programming with PuLP
+title: Experiments with linear programming problems
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
