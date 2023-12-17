@@ -105,38 +105,20 @@ def elastic_filter(problem):
                 result.append(constraint.__original)
 
 
-# Find a single IIS of an infeasible problem.
+# Perform a deletion filtering on the problem, as defined in the linked paper, §2. Deletion Filtering.
+# The deletion filter is enhanced by a sensitivity filter, improving its efficiency (§5. Sensitivity Filtering)
 #
-# This function works in two passes:
-# - First pass is using the elastic filter algorithm to filter out constraints that are not part of an IIS.
-# - Second pass is a deletion filter on the result of the elastic filter to get a single IIS.
+# The output is guaranteed to be a single IIS, if an IIS exists in the problem. (§2.1., Theorem 2)
 #
-# The deletion algorithm is specified in the linked paper, §2. Deletion filtering.
-# Proof the output is a single IIS can be found in the linked paper, §2.1. Theorems and Discussion, Theorem 2.
-#
-# It is enhanced by a sensitivity filter, as defined in the linked paper, § 5. Sensitivity filtering.
-#
-# Efficiency: the performance of the elastic + delete/sensitivity approach varies from problem to problem.
-# It is clear from a limited test that some problems yield an IIS very fast with this method, but some are much longer.
-# This is partly due to the inefficient way this is done by interfacing with a solver through a high level modeler,
-# which does not let us access the solver internal states nor do partial solves.
-#
-# In addition, a more sophisticated implementation should use heuristics to determine which algorithm to use, and when.
-# For example, a heuristic could be able to tell us running an elastic filtering step is inefficient based on the
-# properties of the problem, leading to a faster result while still maintaining the huge speed-up (I measured 80x speed
-# improvements for some problems such as `gosh.mps`) of having the elastic filtering pass.
-#
-# Combining the two, we could imagine being able based on a heuristic be able during the solving that the method
-# currently picked will be inefficient, and try something else. If we also pour in the ability to optimize the
-# solving algorithms used for this problem, there is a huge potential for improvement over this rather crude
-# implementation.
-def compute_iis(problem):
-    iss_constraints = elastic_filter(problem)
+# The function accepts a list of filtered constraints, to allow enhancing the speed of the algorithm by only
+# operating on the constraints identified by an elastic filter.
+def deletion_filter(problem, filtered_constraints=None):
+    constraints = problem.constraints.values() if filtered_constraints is None else list(filtered_constraints)
 
     # If there is a single contraint, we don't need to process any further.
     # Plus, it seems CBC has issues with problems that include zero constraints (who would do that! totally not me-)
-    if len(iss_constraints) == 1:
-        return iss_constraints
+    if len(constraints) == 1:
+        return constraints
 
     if problem.status == 0:
         problem.solve()  # Would benefit from stopping at phase 1
@@ -144,13 +126,13 @@ def compute_iis(problem):
     # For every constraint, check if removing it makes the program feasible.
     # If it does, keep the constraint. Otherwise, drop the constraint.
     # List is copied to make sure deletions are handled correctly.
-    constraints = list(iss_constraints)
-    while len(constraints) != 0:
-        c = constraints.pop()
+    to_process = list(constraints)
+    while len(to_process) != 0:
+        c = to_process.pop()
 
         sub_problem = LpProblem("feasibility_check", problem.sense)
         sub_problem += problem.objective
-        for constraint in iss_constraints:
+        for constraint in constraints:
             if c != constraint:
                 sub_problem += constraint
 
@@ -162,14 +144,34 @@ def compute_iis(problem):
         # That's the downside of doing it from PuLP: we don't have the ability to poke at internal data
         # structures of the solver, or have granular control over what it's doing. It is what it is!
         if sub_problem.solve() == LpStatusInfeasible:
-            iss_constraints.remove(c)
+            constraints.remove(c)
             for c in sub_problem.constraints.values():
                 if c.pi != 0:
-                    iss_constraints.remove(c)
                     constraints.remove(c)
+                    to_process.remove(c)
 
             # Same check as before, for the same reasons.
-            if len(iss_constraints) == 1:
-                return iss_constraints
+            if len(constraints) == 1:
+                return constraints
 
-    return iss_constraints
+    return constraints
+
+
+# Find a single IIS of an infeasible problem, using an elastic filtering, followed by a deletion/sensitivity filter.
+#
+# The performance of this approach varies depending on the problem's properties and the size of the IIS.
+# It is clear from a limited test that some problems yield an IIS very fast, and some will take their time.
+# This is partly due to the inefficient way this is done by interfacing with a solver through a high level modeler,
+# which does not let us access the solver internal states nor do partial solves.
+#
+# In addition, a more sophisticated implementation should use heuristics to determine which algorithm to use, and when.
+# For example, a heuristic could be able to tell us running an elastic filtering step is inefficient based on the
+# properties of the problem, leading to a faster result while still maintaining the huge speed-up (I measured up
+# to 90x speed improvements for some problems such as `gosh.mps`) of having the elastic filtering pass.
+#
+# Combining the two, we could imagine being able based on a heuristic be able during the solving that the method
+# currently picked will be inefficient, and try something else. If we also pour in the ability to optimize the
+# algorithms used, there is a huge potential for improvement over this rather crude implementation.
+def compute_iis(problem):
+    filtered_constraints = elastic_filter(problem)
+    return deletion_filter(problem, filtered_constraints)
