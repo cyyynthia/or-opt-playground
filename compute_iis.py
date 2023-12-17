@@ -38,6 +38,7 @@ from pulp import (
     LpSolverDefault,
 )
 
+
 # Makes a constraint elastic by adding 2 variables to move the constraint up or down.
 # The bounds of the elastic variables are set to only allow the constraint to be relaxed.
 def make_constraint_elastic(constraint):
@@ -60,9 +61,7 @@ def make_constraint_elastic(constraint):
 # Perform an elastic filtering on the problem, as defined in the linked paper, §4. Elastic filtering.
 #
 # The output is a set of constraints that contain one or more IIS, but no irrelevant constraints; that is,
-# every constraint contained in the output set is part of an IIS.
-#
-# See linked paper, §4.1. Theorems and Discussion, Lemma 3 for proof of the aforementioned statement.
+# every constraint contained in the output set is part of an IIS. (§4.1., Lemma 3)
 def elastic_filter(problem):
     elastic_problem = LpProblem("elastic_filtering", LpMinimize)
 
@@ -100,12 +99,12 @@ def elastic_filter(problem):
         # For every constraint that has been stretched, turn them back to their original non-elastic form,
         # append it to the result set, and update the elastic variables' upper bound and value to 0.
         for (k, (e_u, e_d)) in elastic_variables.items():
-            if e_u.value() > 0 or e_d.value() > 0:
+            constraint = elastic_problem.constraints[k]
+            if constraint.pi != 0:
                 # Enforce the constraint by not allowing it to be stretched
                 e_u.upBound = e_d.upBound = 0
                 e_u.setInitialValue(0)
                 e_d.setInitialValue(0)
-                constraint = elastic_problem.constraints[k]
                 result.append(constraint.__original)
 
 
@@ -118,7 +117,9 @@ def elastic_filter(problem):
 # The deletion algorithm is specified in the linked paper, §2. Deletion filtering.
 # Proof the output is a single IIS can be found in the linked paper, §2.1. Theorems and Discussion, Theorem 2.
 #
-# Efficiency: the performance of the elastic + delete approach varies from problem to problem.
+# It is enhanced by a sensitivity filter, as defined in the linked paper, § 5. Sensitivity filtering.
+#
+# Efficiency: the performance of the elastic + delete/sensitivity approach varies from problem to problem.
 # It is clear from a limited test that some problems yield an IIS very fast with this method, but some are much longer.
 # This is partly due to the inefficient way this is done by interfacing with a solver through a high level modeler,
 # which does not let us access the solver internal states nor do partial solves.
@@ -139,9 +140,16 @@ def compute_iis(problem):
     if len(iss_constraints) == 1:
         return iss_constraints
 
+    if problem.status == 0:
+        problem.solve()  # Would benefit from stopping at phase 1
+
     # For every constraint, check if removing it makes the program feasible.
     # If it does, keep the constraint. Otherwise, drop the constraint.
-    for c in list(iss_constraints):
+    # List is copied to make sure deletions are handled correctly.
+    constraints = list(iss_constraints)
+    while len(constraints) != 0:
+        c = constraints.pop()
+
         sub_problem = LpProblem("feasibility_check", problem.sense)
         sub_problem += problem.objective
         for constraint in iss_constraints:
@@ -157,6 +165,10 @@ def compute_iis(problem):
         # structures of the solver, or have granular control over what it's doing. It is what it is!
         if sub_problem.solve() == LpStatusInfeasible:
             iss_constraints.remove(c)
+            for c in sub_problem.constraints.values():
+                if c.pi != 0:
+                    iss_constraints.remove(c)
+                    constraints.remove(c)
 
             # Same check as before, for the same reasons.
             if len(iss_constraints) == 1:
