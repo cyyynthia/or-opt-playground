@@ -113,7 +113,7 @@ def elastic_filter(problem):
 # The function accepts a list of filtered constraints, to allow enhancing the speed of the algorithm by only
 # operating on the constraints identified by an elastic filter.
 def deletion_filter(problem, filtered_constraints=None):
-    constraints = problem.constraints.values() if filtered_constraints is None else list(filtered_constraints)
+    constraints = list(problem.constraints.values() if filtered_constraints is None else filtered_constraints)
 
     # If there is a single contraint, we don't need to process any further.
     # Plus, it seems CBC has issues with problems that include zero constraints (who would do that! totally not me-)
