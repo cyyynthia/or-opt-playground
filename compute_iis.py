@@ -43,6 +43,7 @@ from pulp import (
 def make_constraint_elastic(constraint):
     e_u = LpVariable(f"$elastic_{constraint.name}_up", 0, 0)
     e_d = LpVariable(f"$elastic_{constraint.name}_down", 0, 0)
+
     elastic_constraint = constraint + e_u - e_d
     elastic_constraint.name = f"{constraint.name}+elastic"
 
@@ -57,7 +58,7 @@ def make_constraint_elastic(constraint):
     return elastic_constraint, e_u, e_d
 
 
-# Perform an elastic filtering on the problem, as defined in the linked paper, §4. Elastic filtering.
+# Perform an elastic filtering on the problem, as defined in the linked paper, §4. Elastic Filtering.
 #
 # The output is a set of constraints that contain one or more IIS, but no irrelevant constraints; that is,
 # every constraint contained in the output set is part of an IIS. (§4.1., Lemma 3)
@@ -66,10 +67,11 @@ def make_constraint_elastic(constraint):
 # make zero difference in the performance of the filter, and in some cases worsen it.
 def elastic_filter(problem):
     elastic_problem = LpProblem("elastic_filtering", LpMinimize)
+    result = {}
 
     # Turn all the constraints into "elastic" constraints.
     # They then can be "stretched", or moved, to try and make a problem that's solvable.
-    elastic_variables = dict()
+    elastic_variables = {}
     for (k, constraint) in problem.constraints.items():
         elastic_constraint, e_u, e_d = make_constraint_elastic(constraint)
         elastic_constraint.__original = constraint
@@ -83,11 +85,10 @@ def elastic_filter(problem):
 
     # Scary infinite loop!!!
     # This while true is [theoretically] safe, as each iteration will either:
-    # - Have an objective value for the ILP of zero, exiting the loop
-    # - Remove constraints from the ILP
+    # - Have an objective value for the LP of zero, exiting the loop
+    # - Remove constraints from the LP
     # As the goal is to minimize the sum of all elastic variables, it will reach
-    # zero in a finite amount of iterations due to the nature of the ILP we created.
-    result = []
+    # zero in a finite amount of iterations due to the nature of the LP we created.
     while True:
         status = elastic_problem.solve()
         if status == LpStatusInfeasible or elastic_problem.objective.value() == 0:
@@ -96,24 +97,21 @@ def elastic_filter(problem):
         # For every constraint that has been stretched, turn them back to their original non-elastic form,
         # append it to the result set, and update the elastic variables' upper bound and value to 0.
         for (k, (e_u, e_d)) in elastic_variables.items():
-            constraint = elastic_problem.constraints[k]
-            if constraint.pi != 0:
+            if e_u.value() != 0 or e_d.value() != 0:
                 # Enforce the constraint by not allowing it to be stretched
                 e_u.upBound = e_d.upBound = 0
-                e_u.setInitialValue(0)
-                e_d.setInitialValue(0)
-                result.append(constraint.__original)
+                constraint = elastic_problem.constraints[k].__original
+                result[constraint.name] = constraint
 
 
 # Perform a deletion filtering on the problem, as defined in the linked paper, §2. Deletion Filtering.
-# The deletion filter is enhanced by a sensitivity filter, improving its efficiency (§5. Sensitivity Filtering)
 #
 # The output is guaranteed to be a single IIS, if an IIS exists in the problem. (§2.1., Theorem 2)
 #
-# The function accepts a list of filtered constraints, to allow enhancing the speed of the algorithm by only
+# The function accepts a dict of filtered constraints, to allow enhancing the speed of the algorithm by only
 # operating on the constraints identified by an elastic filter.
 def deletion_filter(problem, filtered_constraints=None):
-    constraints = list(problem.constraints.values() if filtered_constraints is None else filtered_constraints)
+    constraints = (problem.constraints if filtered_constraints is None else filtered_constraints).copy()
 
     # If there is a single contraint, we don't need to process any further.
     # Plus, it seems CBC has issues with problems that include zero constraints (who would do that! totally not me-)
@@ -122,30 +120,20 @@ def deletion_filter(problem, filtered_constraints=None):
 
     # For every constraint, check if removing it makes the program feasible.
     # If it does, keep the constraint. Otherwise, drop the constraint.
-    # List is copied to make sure deletions are handled correctly.
-    to_process = list(constraints)
+    to_process = constraints.copy()
     while len(to_process) != 0:
-        c = to_process.pop()
+        k, c = to_process.popitem()
 
-        sub_problem = LpProblem("feasibility_check", problem.sense)
-        sub_problem += problem.objective
-        for constraint in constraints:
-            if c != constraint:
+        # The objective is not passed, so the solver won't try to find an optimal solution but any solution.
+        # It does not change the feasibility of a problem, and improves the efficiency of feasibility check.
+        # Credits: https://scicomp.stackexchange.com/a/2608
+        sub_problem = LpProblem("feasibility_check")
+        for constraint in constraints.values():
+            if constraint.name != k:
                 sub_problem += constraint
 
-        # Efficiency: this is... not great. We could shortcircuit if we had control over the internals of
-        # the solver as soon as we identify if the program will be feasible, or not. No need to go and try to
-        # find the optimal solution. For instance, a solver using the two-phase simplex method could stop right
-        # after phase 1.
-        #
-        # That's the downside of doing it from PuLP: we don't have the ability to poke at internal data
-        # structures of the solver, or have granular control over what it's doing. It is what it is!
         if sub_problem.solve() == LpStatusInfeasible:
-            constraints.remove(c)
-            for c in sub_problem.constraints.values():
-                if c.pi != 0:
-                    constraints.remove(c)
-                    to_process.remove(c)
+            del constraints[c.name]
 
             # Same check as before, for the same reasons.
             if len(constraints) == 1:
