@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 type: software
-repository-code: https://github.com/cyyynthia/pulp-playground
-license: BSD-3-Clause
-title: Experiments with linear programming problems
+repository-code: https://github.com/cyyynthia/or-opt-playground
+license: MPL-2.0
+title: Experiments with optimizations problems in operational research
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
