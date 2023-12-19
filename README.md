@@ -10,18 +10,20 @@ The snippets in this repository work with CBC MILP. Other solvers are untested, 
 solver.
 
 ## Things I've done
-- [minimum_constraints_to_remove.py](./minimum_constraints_to_remove.py):
-Computes a possible minimal combinaison of constraints to remove in order to make a problem feasible.
-Formulas used from this post on Operations Research StackExchange: https://or.stackexchange.com/a/7309
-
 - [compute_iis.py](./compute_iis.py):
 Computes an IIS of constraints of an infeasible problem. Uses a combination of elastic filtering and deletion filtering.
-Not the most efficient solution, but an efficient implementation must come from a "real" solver anyway. 
-[*John W. Chinneck, Erik W. Dravnieks, (1991) Locating Minimal Infeasible Constraint Sets in Linear Programs. ORSA Journal on Computing 3(2):157-168.*](https://doi.org/10.1287/ijoc.3.2.157)
+Not the most efficient solution, but an efficient implementation must come from a "real" solver anyway.
+  - [*John W. Chinneck, Erik W. Dravnieks, (1991) Locating Minimal Infeasible Constraint Sets in Linear Programs. ORSA Journal on Computing 3(2):157-168.*](https://doi.org/10.1287/ijoc.3.2.157)
+  - [*John W. Chinneck, (1997) Finding a Useful Subset of Constraints for Analysis in an Infeasible Linear Program. INFORMS Journal on Computing 9(2):164-174.*](https://doi.org/10.1287/ijoc.9.2.164)
+
+- [minimum_constraints_to_remove.py](./minimum_constraints_to_remove.py):
+Computes a possible minimal combinaison of constraints to remove in order to make a problem feasible. Crude 
+implementation without many experiments beyond the original PoC.
+  - Formulas used from this post on Operations Research StackExchange: https://or.stackexchange.com/a/7309
 
 ## Useful resources
 - Collection of instances from MIPLIB: https://git.zib.de/miplib2017/revised-submissions-final 
-- Collection of infeasible instances from COIN-OR: https://github.com/coin-or-tools/Data-Infeas/tree/master 
+- Collection of infeasible instances (netlib): https://github.com/coin-or-tools/Data-Infeas
 
 ## License
 Software licensed under the BSD-3-Clause license, please see LICENSE for more details.

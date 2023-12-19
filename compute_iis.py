@@ -28,60 +28,115 @@
 # ----------
 #
 # The algorithms implemented in this file are from the following publication:
-#     John W. Chinneck, Erik W. Dravnieks, (1991) Locating Minimal Infeasible Constraint Sets in Linear Programs.
-#     ORSA Journal on Computing 3(2):157-168.
-#     https://doi.org/10.1287/ijoc.3.2.157
+# [1]  John W. Chinneck, Erik W. Dravnieks, (1991) Locating Minimal Infeasible Constraint Sets in Linear Programs.
+#      ORSA Journal on Computing 3(2):157-168.
+#      https://doi.org/10.1287/ijoc.3.2.157
+#
+# Algorithms used, implementation and behavior were influenced by the following publication:
+# [2]  John W. Chinneck, (1997) Finding a Useful Subset of Constraints for Analysis in an Infeasible Linear Program.
+#      INFORMS Journal on Computing 9(2):164-174.
+#      https://doi.org/10.1287/ijoc.9.2.164
 
 from pulp import (
-    LpVariable, LpProblem, lpSum,
+    LpVariable, LpAffineExpression, LpProblem, lpSum,
     LpMinimize, LpConstraintGE, LpConstraintLE, LpStatusInfeasible,
 )
 
 
-# Makes a constraint elastic by adding 2 variables to move the constraint up or down.
-# The bounds of the elastic variables are set to only allow the constraint to be relaxed.
-def make_constraint_elastic(constraint):
-    e_u = LpVariable(f"$elastic_{constraint.name}_up", 0, 0)
-    e_d = LpVariable(f"$elastic_{constraint.name}_down", 0, 0)
+# Creates a deep clone of a problem. Allows having ownership of the problem rather than a borrowed reference.
+# The wording above is absolutely a reference to Rust's Borrow Checker. >:D
+def deep_clone_problem(problem):
+    cloned_vars = {}
 
-    elastic_constraint = constraint + e_u - e_d
-    elastic_constraint.name = f"{constraint.name}+elastic"
+    clone = LpProblem(problem.name)  # No need to copy the objective.
+    for constraint in problem.constraints.values():
+        cloned_constraint = clone_affine_expression_in(constraint, cloned_vars)
 
-    if elastic_constraint.sense == LpConstraintGE:
-        e_u.upBound = None
-    elif elastic_constraint.sense == LpConstraintLE:
-        e_d.upBound = None
-    else:
-        e_u.upBound = None
-        e_d.upBound = None
+        if constraint.sense == LpConstraintGE:
+            cloned_constraint = cloned_constraint >= -constraint.constant
+        elif constraint.sense == LpConstraintLE:
+            cloned_constraint = cloned_constraint <= -constraint.constant
+        else:
+            cloned_constraint = cloned_constraint == -constraint.constant
 
-    return elastic_constraint, e_u, e_d
+        cloned_constraint.name = constraint.name
+        clone += cloned_constraint
+
+    return clone
 
 
-# Perform an elastic filtering on the problem, as defined in the linked paper, §4. Elastic Filtering.
+def clone_affine_expression_in(expr, cloned_vars):
+    cloned = LpAffineExpression()
+    for (x, a) in expr.items():
+        if x.name not in cloned_vars:
+            cloned_vars[x.name] = LpVariable(x.name, upBound=x.upBound, lowBound=x.lowBound, cat=x.cat)
+
+        y = cloned_vars[x.name]
+        cloned += a * y
+
+    cloned.name = expr.name
+    return cloned
+
+
+# Turn a problem into an elastic problem. (Linked paper [1], §3. Elastic Programming and Phase 1 LPs)
+#
+# This is useful not only for the elastic filter (for quite obvious reasons); but also for the deletion filter.
+# The elastic filter *is* the phase 1 of the two-phase simplex method. It therefore gives us insight about the
+# feasibility or infeasibility of a problem, the shadow prices gathered tell us, for an infeasible problem,
+# which constraints are involved in the IIS that we encountered while solving. Reciprocally, we also know which
+# constraints are definitely not involved in *this* specific IIS, and we can therefore eliminate those.
+#
+# The sensitivity filter therefore becomes almost zero-cost, since it's just observing side products of the
+# original goal of identifying feasibility.
+def make_problem_elastic(problem):
+    elastic_problem = LpProblem(f"{problem.name}+elastic")
+    elastic_variables = {}
+    for (k, constraint) in problem.constraints.items():
+        e_u = LpVariable(f"$elastic_{k}_up", 0, 0)
+        e_d = LpVariable(f"$elastic_{k}_down", 0, 0)
+
+        elastic_constraint = constraint + e_u - e_d
+        elastic_constraint.name = f"{k}+elastic"
+
+        if elastic_constraint.sense == LpConstraintGE:
+            e_u.upBound = None
+        elif elastic_constraint.sense == LpConstraintLE:
+            e_d.upBound = None
+        else:
+            e_u.upBound = None
+            e_d.upBound = None
+
+        elastic_variables[k] = e_u, e_d
+        elastic_problem += elastic_constraint
+
+    # Define objective: we want to move the least amount of constraints, so we'll minimize that.
+    # Note: a feasible solution must have a solution where this is zero (no artificial variable is needed).
+    elastic_problem += lpSum(elastic_variables.values())
+    return elastic_problem, elastic_variables
+
+
+# Create a PuLP problem from a given set of constraints.
+def constraints_to_problem(constraints_set):
+    problem = LpProblem()
+    for k, constraint in constraints_set.items():
+        problem += constraint
+
+    return problem
+
+# Perform an elastic filtering on the problem, as defined in the linked paper [1], §4. Elastic Filtering.
+#
+# The elastic filter is enhanced with suggestions from the linked paper [2], §6.2.7. Finding Useful Solutions, to
+# make the output of the elastic filter as useful as possible, while allowing some optimizations to be performed
+# in the deletion filter (such as the use of a sensitivity filer).
 #
 # The output is a set of constraints that contain one or more IIS, but no irrelevant constraints; that is,
-# every constraint contained in the output set is part of an IIS. (§4.1., Lemma 3)
+# every constraint contained in the output set is part of an IIS. ([1] §4.1., Lemma 3)
 #
 # From limited testing, it seems doing warm starts (i.e. reusing the results of the previous iteration)
 # make zero difference in the performance of the filter, and in some cases worsen it.
 def elastic_filter(problem):
-    elastic_problem = LpProblem("elastic_filtering", LpMinimize)
+    elastic_problem, elastic_variables = make_problem_elastic(problem)
     result = {}
-
-    # Turn all the constraints into "elastic" constraints.
-    # They then can be "stretched", or moved, to try and make a problem that's solvable.
-    elastic_variables = {}
-    for (k, constraint) in problem.constraints.items():
-        elastic_constraint, e_u, e_d = make_constraint_elastic(constraint)
-        elastic_constraint.__original = constraint
-
-        elastic_variables[elastic_constraint.name] = e_u, e_d
-        elastic_problem += elastic_constraint
-
-    # Define objective
-    # We want to move the least amount of constraints, so we'll minimize that.
-    elastic_problem += lpSum(elastic_variables.values())
 
     # Scary infinite loop!!!
     # This while true is [theoretically] safe, as each iteration will either:
@@ -98,42 +153,58 @@ def elastic_filter(problem):
         # append it to the result set, and update the elastic variables' upper bound and value to 0.
         for (k, (e_u, e_d)) in elastic_variables.items():
             if e_u.value() != 0 or e_d.value() != 0:
-                # Enforce the constraint by not allowing it to be stretched
+                # Enforce the constraint by forcing the artificial variable to be zero.
+                # This is easier than to re-build the problem without the elastic variables.
+                #
+                # In our case (cannot re-use solver memory structures etc.) it may come at a cost,
+                # since the solver will have to go through them again. Let's hope it's negligible! >:3
                 e_u.upBound = e_d.upBound = 0
-                constraint = elastic_problem.constraints[k].__original
-                result[constraint.name] = constraint
+                result[k] = problem.constraints[k]
 
 
-# Perform a deletion filtering on the problem, as defined in the linked paper, §2. Deletion Filtering.
+# Perform a deletion filtering on the problem, as defined in the linked paper [1], §2. Deletion Filtering.
+# The deletion filter is enhanced by a sensitivity filter, improving its efficiency. ([1] §5. Sensitivity Filtering)
 #
-# The output is guaranteed to be a single IIS, if an IIS exists in the problem. (§2.1., Theorem 2)
-#
-# The function accepts a dict of filtered constraints, to allow enhancing the speed of the algorithm by only
-# operating on the constraints identified by an elastic filter.
-def deletion_filter(problem, filtered_constraints=None):
-    constraints = (problem.constraints if filtered_constraints is None else filtered_constraints).copy()
+# The output is guaranteed to be a single IIS, if an IIS exists in the problem. ([1] §2.1., Theorem 2)
+# Variable bounds are not filtered, although an extension of the deletion algorithm may be used for this
+# purpose. ([1] §2.1. Theorems and Discussion)
+def deletion_filter(problem):
+    # It is impossible a single constraint makes up an IIS
+    if len(problem.constraints) == 1:
+        return []
 
-    # If there is a single contraint, we don't need to process any further.
-    # Plus, it seems CBC has issues with problems that include zero constraints (who would do that! totally not me-)
-    if len(constraints) == 1:
-        return constraints
+    elastic_problem, _ = make_problem_elastic(problem)
+
+    constraints = problem.constraints.copy()
+    elastic_constraints = elastic_problem.constraints.copy()
 
     # For every constraint, check if removing it makes the program feasible.
-    # If it does, keep the constraint. Otherwise, drop the constraint.
-    to_process = constraints.copy()
+    # If it does, keep the constraint. Otherwise, drop the constraint and apply sensitivity filtering.
+    to_process = elastic_problem.constraints.copy()
     while len(to_process) != 0:
-        k, c = to_process.popitem()
+        key, _ = to_process.popitem()
 
-        # The objective is not passed, so the solver won't try to find an optimal solution but any solution.
-        # It does not change the feasibility of a problem, and improves the efficiency of feasibility check.
-        # Credits: https://scicomp.stackexchange.com/a/2608
-        sub_problem = LpProblem("feasibility_check")
-        for constraint in constraints.values():
-            if constraint.name != k:
+        sub_problem = LpProblem("feasibility_check", LpMinimize)
+        sub_problem.objective = elastic_problem.objective
+        for k, constraint in elastic_constraints.items():
+            if k != key:
                 sub_problem += constraint
 
-        if sub_problem.solve() == LpStatusInfeasible:
-            del constraints[c.name]
+        # The problem cannot be infeasible.
+        # All constraints are elastic and can be freely violated.
+        sub_problem.solve()
+
+        if sub_problem.objective.value() > 0:
+            del constraints[key[:-8]]
+            del elastic_constraints[key]
+
+            # Sensitivity filter
+            for c2 in sub_problem.constraints.values():
+                if c2.pi == 0:
+                    del constraints[c2.name[:-8]]
+                    del elastic_constraints[c2.name]
+                    if c2.name in to_process:
+                        del to_process[c2.name]
 
             # Same check as before, for the same reasons.
             if len(constraints) == 1:
@@ -146,10 +217,8 @@ def deletion_filter(problem, filtered_constraints=None):
 #
 # The performance of this approach varies depending on the problem's properties and the size of the IIS.
 # It is clear from a limited test that some problems yield an IIS very fast, and some will take their time.
-# This is partly due to the inefficient way this is done by interfacing with a solver through a high level modeler,
-# which does not let us access the solver internal states nor do partial solves.
 #
-# In addition, a more sophisticated implementation should use heuristics to determine which algorithm to use, and when.
+# A more sophisticated implementation should use heuristics to determine which algorithm to use, and when.
 # For example, a heuristic could be able to tell us running an elastic filtering step is inefficient based on the
 # properties of the problem, leading to a faster result while still maintaining the huge speed-up (I measured up
 # to 90x speed improvements for some problems such as `gosh.mps`) of having the elastic filtering pass.
@@ -158,5 +227,15 @@ def deletion_filter(problem, filtered_constraints=None):
 # currently picked will be inefficient, and try something else. If we also pour in the ability to optimize the
 # algorithms used, there is a huge potential for improvement over this rather crude implementation.
 def compute_iis(problem):
+    problem = deep_clone_problem(problem)
+
+    # Elastic filter
     filtered_constraints = elastic_filter(problem)
-    return deletion_filter(problem, filtered_constraints)
+    filtered_problem = constraints_to_problem(filtered_constraints)
+
+    # Deletion filter - produces an IIS (with potentially useless variable bounds)
+    iis_constraints = deletion_filter(filtered_problem)
+    iis_problem = constraints_to_problem(iis_constraints)
+
+    iis_problem.name = f"iis_of_{problem.name}"
+    return iis_problem

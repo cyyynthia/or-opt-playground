@@ -26,3 +26,16 @@ references:
         family-names: Chinneck
       - given-names: Erik W.
         family-names: Dravnieks
+  - type: generic
+    title: Finding a Useful Subset of Constraints for Analysis in an Infeasible Linear Program
+    doi: 10.1287/ijoc.9.2.164
+    url: https://doi.org/10.1287/ijoc.9.2.164
+    journal: INFORMS Journal on Computing
+    volume: 9
+    number: 2
+    start: 164
+    end: 174
+    year: 1997
+    authors:
+      - given-names: John W.
+        family-names: Chinneck
