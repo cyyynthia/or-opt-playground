@@ -15,24 +15,24 @@ information about why I did things this way and link to resources which helped m
 of further readings.
 
 ## Things I've done
-- [pulp/compute_iis.py](./compute_iis.py):
+- [pulp/compute_iis.py](./pulp/compute_iis.py):
 Computes an IIS of constraints of an infeasible problem, using PuLP. Uses a combination of elastic filtering, deletion
 filtering, and sensitivity filtering. Not the most efficient solution, but an efficient implementation must come from
 something lower level than something like PuLP anyway. This is mostly intended to be a PoC of an implementation.
   - [*John W. Chinneck, Erik W. Dravnieks, (1991) Locating Minimal Infeasible Constraint Sets in Linear Programs. ORSA Journal on Computing 3(2):157-168.*](https://doi.org/10.1287/ijoc.3.2.157)
   - [*John W. Chinneck, (1997) Finding a Useful Subset of Constraints for Analysis in an Infeasible Linear Program. INFORMS Journal on Computing 9(2):164-174.*](https://doi.org/10.1287/ijoc.9.2.164)
 
-- [pulp/minimum_constraints_to_remove.py](./minimum_constraints_to_remove.py):
-Computes a possible minimal combinaison of constraints to remove in order to make a problem feasible. Crude 
+- [pulp/minimum_constraints_to_remove.py](./pulp/minimum_constraints_to_remove.py):
+Computes a possible minimal combinaison of constraints to remove in order to make a problem feasible. Crude
 implementation without many experiments beyond the original PoC.
   - Formulas used from this post on Operations Research StackExchange: https://or.stackexchange.com/a/7309
 
 ## Useful resources
-- Collection of instances from MIPLIB: https://git.zib.de/miplib2017/revised-submissions-final 
+- Collection of instances from MIPLIB: https://git.zib.de/miplib2017/revised-submissions-final
 - Collection of infeasible instances (netlib): https://github.com/coin-or-tools/Data-Infeas
 
 ## License
-Software licensed under the Mozilla Public License 2.0, please see LICENSE for more details.
+Software licensed under the BSD-3-Clause license, please see LICENSE for more details.
 Each file includes copyright information and the relevant credits.
 
 ---
